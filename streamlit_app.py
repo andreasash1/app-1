@@ -31,59 +31,71 @@ if check_password():
     st.title("🚢 Secure PDA AI Assistant")
     st.info("Upload a PDA spreadsheet to chat with it. Data is erased when you close the app.")
     
-    # Initialize Groq AI Client (using Meta Llama 3)
+    # Initialize Groq AI Client
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-    # File Uploader
-    uploaded_file = st.file_uploader("Upload PDA (CSV format)", type="csv")
+    # File Uploader - NOW ACCEPTS BOTH CSV AND XLSX
+    uploaded_file = st.file_uploader("Upload PDA (CSV or Excel)", type=["csv", "xlsx"])
     
     if uploaded_file is not None:
-        # Read the file
-        df = pd.read_csv(uploaded_file)
-        pda_data_string = df.to_string() # Convert spreadsheet to text for the AI
-        
-        st.success(f"Successfully loaded: {uploaded_file.name}")
-        
-        # Chat Interface
-        st.subheader("💬 Ask about this PDA")
-        
-        # Keep track of chat history
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
-
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-        # User Input
-        if prompt := st.chat_input("E.g., What is the total ISPS cost?"):
-            # Add user message to UI
-            st.chat_message("user").markdown(prompt)
-            st.session_state.messages.append({"role": "user", "content": prompt})
-
-            # System instructions instructing Llama 3 how to behave
-            system_prompt = f"""
-            You are a maritime shipping expert. Answer the user's question using ONLY the following PDA data.
-            Provide calculations if requested.
+        try:
+            # Check the file extension and read appropriately
+            if uploaded_file.name.endswith('.xlsx'):
+                df = pd.read_excel(uploaded_file)
+            else:
+                # Try standard CSV, if it fails due to Excel's weird encoding, try latin1
+                try:
+                    df = pd.read_csv(uploaded_file, encoding='utf-8')
+                except UnicodeDecodeError:
+                    df = pd.read_csv(uploaded_file, encoding='latin1')
             
-            PDA DATA:
-            {pda_data_string}
-            """
+            pda_data_string = df.to_string() # Convert spreadsheet to text for the AI
+            
+            st.success(f"Successfully loaded: {uploaded_file.name}")
+            
+            # Chat Interface
+            st.subheader("💬 Ask about this PDA")
+            
+            # Keep track of chat history
+            if "messages" not in st.session_state:
+                st.session_state.messages = []
 
-            # Call Groq / Llama 3 Open Source AI
-            with st.spinner("Analyzing PDA..."):
-                chat_completion = client.chat.completions.create(
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt}
-                    ],
-                    model="llama3-70b-8192", # Meta's powerful open-source model
-                    temperature=0.2, # Keep it strictly factual
-                )
+            for message in st.session_state.messages:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
+
+            # User Input
+            if prompt := st.chat_input("E.g., What is the total ISPS cost?"):
+                # Add user message to UI
+                st.chat_message("user").markdown(prompt)
+                st.session_state.messages.append({"role": "user", "content": prompt})
+
+                # System instructions instructing Llama 3 how to behave
+                system_prompt = f"""
+                You are a maritime shipping expert. Answer the user's question using ONLY the following PDA data.
+                Provide calculations if requested.
                 
-                reply = chat_completion.choices[0].message.content
-                
-                # Show AI reply
-                with st.chat_message("assistant"):
-                    st.markdown(reply)
-                st.session_state.messages.append({"role": "assistant", "content": reply})
+                PDA DATA:
+                {pda_data_string}
+                """
+
+                # Call Groq / Llama 3 Open Source AI
+                with st.spinner("Analyzing PDA..."):
+                    chat_completion = client.chat.completions.create(
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": prompt}
+                        ],
+                        model="llama3-70b-8192", 
+                        temperature=0.2, 
+                    )
+                    
+                    reply = chat_completion.choices[0].message.content
+                    
+                    # Show AI reply
+                    with st.chat_message("assistant"):
+                        st.markdown(reply)
+                    st.session_state.messages.append({"role": "assistant", "content": reply})
+                    
+        except Exception as e:
+            st.error(f"Error reading file: {e}. Please ensure it is a valid, uncorrupted spreadsheet.")
